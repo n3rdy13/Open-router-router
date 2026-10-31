@@ -1,0 +1,722 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Switchboard">
+<meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101317" media="(prefers-color-scheme: dark)">
+<title>Switchboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<style>
+/* Layout: fixed-height chat column — header, scrolling messages, composer; settings live in bottom sheets */
+:root{
+  --bg:#f4f5f7; --surface:#ffffff; --surface-2:#eaedf1; --line:#d6dbe2;
+  --fg:#151920; --muted:#5b6574; --accent:#0d7468; --accent-fg:#ffffff;
+  --user:#dff0ec; --danger:#b42318; --danger-bg:#fdecea;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,Roboto,"Helvetica Neue",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --r:12px;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#101317; --surface:#171b21; --surface-2:#20262e; --line:#2d343e;
+    --fg:#e6e9ee; --muted:#97a1af; --accent:#3dbba6; --accent-fg:#05201b;
+    --user:#15302b; --danger:#f97066; --danger-bg:#3a1714;
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 var(--sans);-webkit-text-size-adjust:100%;overflow:hidden}
+button{font:inherit;color:inherit}
+input,textarea,select{font:inherit;font-size:16px;color:var(--fg)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[hidden]{display:none!important}
+
+.app{display:flex;flex-direction:column;height:100vh;height:100dvh}
+
+/* Header */
+.top{display:flex;align-items:center;gap:6px;background:var(--surface);border-bottom:1px solid var(--line);
+  padding-top:calc(8px + env(safe-area-inset-top,0px));padding-bottom:8px;
+  padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px))}
+.model-chip{flex:1;min-width:0;display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:999px;padding:7px 12px;cursor:pointer;text-align:left}
+.model-chip .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
+.model-chip span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;font-size:14px}
+.model-chip svg{flex:none;color:var(--muted)}
+.icon{position:relative;width:40px;height:40px;display:grid;place-items:center;border:0;background:transparent;border-radius:10px;cursor:pointer;color:var(--fg);flex:none}
+.icon:hover{background:var(--surface-2)}
+.badge{position:absolute;top:4px;right:3px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;background:var(--accent);color:var(--accent-fg);font-size:11px;font-weight:700;line-height:17px;text-align:center}
+
+/* Messages */
+.scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.messages{max-width:760px;margin:0 auto;padding-block:16px 24px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  display:flex;flex-direction:column;gap:18px}
+.msg.user{display:flex;justify-content:flex-end}
+.msg.user .bubble{background:var(--user);padding:10px 14px;border-radius:16px 16px 4px 16px;max-width:85%;white-space:pre-wrap;word-wrap:break-word;min-width:0}
+.msg.asst{min-width:0}
+.md{word-wrap:break-word;min-width:0}
+.md > :first-child{margin-top:0}.md > :last-child{margin-bottom:0}
+.md p,.md ul,.md ol,.md pre,.md blockquote,.md table{margin:0 0 .75em}
+.md ul,.md ol{padding-left:1.4em}
+.md h1,.md h2,.md h3,.md h4{line-height:1.3;margin:1.1em 0 .45em;text-wrap:balance}
+.md h1{font-size:1.3em}.md h2{font-size:1.18em}.md h3{font-size:1.05em}
+.md code{font-family:var(--mono);font-size:.88em;background:var(--surface-2);padding:.1em .35em;border-radius:5px}
+.md pre{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;overflow-x:auto}
+.md pre code{background:none;padding:0;font-size:13px;line-height:1.5}
+.md blockquote{border-left:3px solid var(--line);margin-left:0;padding-left:12px;color:var(--muted)}
+.md table{border-collapse:collapse;display:block;overflow-x:auto;max-width:100%}
+.md th,.md td{border:1px solid var(--line);padding:5px 9px;text-align:left}
+.md a{color:var(--accent)}
+.md img{max-width:100%}
+.codecopy{position:absolute;top:6px;right:6px;font-size:12px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);cursor:pointer;opacity:.85}
+.thinking{color:var(--muted);font-style:italic}
+.thinking::after{content:"…";animation:blink 1.2s infinite}
+@keyframes blink{50%{opacity:.2}}
+@media (prefers-reduced-motion:reduce){.thinking::after{animation:none}}
+.foot{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin-top:6px;font-size:12.5px;color:var(--muted)}
+.foot .meta{font-variant-numeric:tabular-nums}
+.foot .actions{display:flex;gap:2px;margin-left:auto}
+.link{border:0;background:none;color:var(--muted);cursor:pointer;padding:4px 6px;border-radius:6px;font-size:12.5px}
+.link:hover{color:var(--fg);background:var(--surface-2)}
+.err{margin-top:8px;background:var(--danger-bg);color:var(--danger);border-radius:10px;padding:9px 12px;font-size:14px}
+
+.empty{margin:auto 0;padding:7vh 0 0;display:flex;flex-direction:column;gap:14px;align-items:flex-start}
+.empty h1{margin:0;font-size:26px;letter-spacing:-.01em}
+.empty p{margin:0;color:var(--muted);max-width:42ch}
+.status{list-style:none;margin:4px 0 0;padding:0;width:100%;max-width:440px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.status li{display:flex;justify-content:space-between;gap:12px;padding:10px 14px;font-size:14px}
+.status li + li{border-top:1px solid var(--line)}
+.status span{color:var(--muted);flex:none}
+.status b{font-weight:600;text-align:right;min-width:0;overflow-wrap:anywhere}
+
+/* Composer */
+.composer{background:var(--bg);border-top:1px solid var(--line);
+  padding-top:10px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));
+  padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px))}
+.composer-inner{max-width:760px;margin:0 auto;display:flex;align-items:flex-end;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:6px 6px 6px 14px}
+.composer textarea{flex:1;min-width:0;border:0;background:transparent;resize:none;max-height:40vh;padding:7px 0;line-height:1.4;outline:none}
+.send{width:36px;height:36px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;cursor:pointer;flex:none}
+.send:disabled{opacity:.4;cursor:default}
+.send.stop{background:var(--fg);color:var(--bg)}
+
+/* Sheets */
+.sheet{position:fixed;inset:0;z-index:50;display:flex;align-items:flex-end;justify-content:center}
+.backdrop{position:absolute;inset:0;background:rgba(10,14,20,.45)}
+.panel{position:relative;width:100%;max-width:600px;max-height:90dvh;display:flex;flex-direction:column;background:var(--surface);
+  border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.18)}
+@media (min-width:700px){.sheet{align-items:center}.panel{border-radius:18px;max-height:84dvh}}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 8px 6px 18px;border-bottom:1px solid var(--line)}
+.panel-head h2{margin:0;font-size:17px}
+.panel-body{overflow-y:auto;padding:16px 18px calc(22px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:22px}
+.group{display:flex;flex-direction:column;gap:8px}
+.group > h3{margin:0;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.hint{margin:0;font-size:13px;color:var(--muted)}
+.hint a{color:var(--accent)}
+.field{width:100%;border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:10px 12px}
+textarea.field{resize:vertical;min-height:120px;line-height:1.45}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row > .field{flex:1;min-width:0}
+.btn{border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:9px 14px;cursor:pointer;font-weight:600;font-size:14px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn.danger{color:var(--danger)}
+.btn.small{padding:6px 10px;font-size:13px}
+.note{font-size:13px;padding:8px 12px;border-radius:10px;background:var(--surface-2)}
+.note.bad{background:var(--danger-bg);color:var(--danger)}
+
+.files,.presets{list-style:none;margin:0;padding:0;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.files:empty,.presets:empty{display:none}
+.files li,.presets li{padding:10px 12px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.files li + li,.presets li + li{border-top:1px solid var(--line)}
+.chk{display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer}
+.chk input{width:20px;height:20px;accent-color:var(--accent);flex:none}
+.fname{font-weight:600;overflow-wrap:anywhere}
+.fsize{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.fact{display:flex;gap:2px}
+.fact .icon{width:32px;height:32px}
+.fact .icon:disabled{opacity:.3;cursor:default}
+.fedit{flex-basis:100%;min-height:160px;font-family:var(--mono);font-size:13px}
+.pname{flex:1;min-width:0;font-weight:600;overflow-wrap:anywhere}
+.pmeta{font-size:12px;color:var(--muted)}
+details.preview summary{cursor:pointer;font-size:14px;color:var(--muted)}
+details.preview pre{white-space:pre-wrap;word-wrap:break-word;font-family:var(--mono);font-size:12.5px;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:12px;max-height:40vh;overflow:auto;margin:8px 0 0}
+
+.model-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.model-list li button{width:100%;text-align:left;border:0;background:none;padding:10px 6px;border-radius:10px;cursor:pointer;display:flex;flex-direction:column;gap:2px}
+.model-list li button:hover{background:var(--surface-2)}
+.model-list li button.on{background:var(--user)}
+.m-name{font-weight:600}
+.m-id{font-family:var(--mono);font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.m-price{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.sticky-search{position:sticky;top:-16px;background:var(--surface);padding:0 0 8px;z-index:1;margin-top:-4px}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:80;
+  background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:999px;font-size:14px;max-width:calc(100% - 32px);text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.2)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <button class="model-chip" id="modelChip" aria-label="Choose model">
+      <i class="dot"></i><span id="modelName">openrouter/auto</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+    </button>
+    <button class="icon" id="btnInstr" aria-label="Instructions">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>
+      <span class="badge" id="instrBadge" hidden>0</span>
+    </button>
+    <button class="icon" id="btnNew" aria-label="New chat">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+    </button>
+    <button class="icon" id="btnSettings" aria-label="Settings">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </header>
+
+  <main class="scroll" id="scroller">
+    <div class="messages" id="messages"></div>
+  </main>
+
+  <footer class="composer">
+    <div class="composer-inner">
+      <textarea id="input" rows="1" placeholder="Message"></textarea>
+      <button class="send" id="sendBtn" aria-label="Send">
+        <svg id="sendIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        <svg id="stopIcon" hidden width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+      </button>
+    </div>
+  </footer>
+</div>
+
+<!-- Settings -->
+<div class="sheet" id="sheet-settings" hidden>
+  <div class="backdrop" data-close></div>
+  <section class="panel" role="dialog" aria-modal="true" aria-labelledby="t-settings">
+    <div class="panel-head"><h2 id="t-settings">Settings</h2><button class="icon" data-close aria-label="Close">✕</button></div>
+    <div class="panel-body">
+      <div class="group">
+        <h3>OpenRouter API key</h3>
+        <div class="row">
+          <input class="field" id="keyInput" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="sk-or-v1-…">
+          <button class="btn small" id="keyShow">Show</button>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="keySave">Save key</button>
+          <button class="btn" id="keyTest">Test</button>
+          <button class="btn danger" id="keyClear">Clear</button>
+        </div>
+        <div class="note" id="keyStatus" hidden></div>
+        <p class="hint">Stored only in this browser and sent only to openrouter.ai. Get a key at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener">openrouter.ai/keys</a>.</p>
+      </div>
+      <div class="group">
+        <h3>This chat</h3>
+        <p class="hint" id="chatTotals"></p>
+        <div class="row">
+          <button class="btn" id="exportBtn">Export as .md</button>
+          <button class="btn danger" id="clearChatBtn">Clear chat</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Instructions -->
+<div class="sheet" id="sheet-instr" hidden>
+  <div class="backdrop" data-close></div>
+  <section class="panel" role="dialog" aria-modal="true" aria-labelledby="t-instr">
+    <div class="panel-head"><h2 id="t-instr">Instructions</h2><button class="icon" data-close aria-label="Close">✕</button></div>
+    <div class="panel-body">
+      <div class="group">
+        <h3>System instructions</h3>
+        <textarea class="field" id="systemInput" placeholder="e.g. You are a patient tutor for a 10-year-old. Explain step by step."></textarea>
+      </div>
+      <div class="group">
+        <h3>Instruction files</h3>
+        <p class="hint">Checked files are added after the text above, in this order.</p>
+        <ul class="files" id="fileList"></ul>
+        <div class="row">
+          <button class="btn" id="addFileBtn">Add .md files</button>
+          <button class="btn" id="pasteFileBtn">New from text</button>
+          <input type="file" id="fileInput" multiple hidden>
+        </div>
+        <div class="group" id="pasteForm" hidden>
+          <input class="field" id="pasteName" placeholder="File name, e.g. style-guide.md" autocapitalize="off">
+          <textarea class="field" id="pasteText" placeholder="Paste markdown here"></textarea>
+          <div class="row"><button class="btn primary" id="pasteAdd">Add file</button><button class="btn" id="pasteCancel">Cancel</button></div>
+        </div>
+      </div>
+      <div class="group">
+        <h3>Presets</h3>
+        <p class="hint">Save the current text and files as a preset you can switch back to.</p>
+        <ul class="presets" id="presetList"></ul>
+        <div class="row"><button class="btn" id="savePresetBtn">Save current as preset</button></div>
+      </div>
+      <details class="preview" id="preview">
+        <summary id="previewSummary">Preview combined prompt</summary>
+        <pre id="previewText"></pre>
+      </details>
+    </div>
+  </section>
+</div>
+
+<!-- Model picker -->
+<div class="sheet" id="sheet-model" hidden>
+  <div class="backdrop" data-close></div>
+  <section class="panel" role="dialog" aria-modal="true" aria-labelledby="t-model">
+    <div class="panel-head"><h2 id="t-model">Choose a model</h2><button class="icon" data-close aria-label="Close">✕</button></div>
+    <div class="panel-body" id="modelBody">
+      <div class="sticky-search"><input class="field" id="modelSearch" type="search" placeholder="Search, e.g. claude, gpt, llama, free" autocapitalize="off" spellcheck="false"></div>
+      <div id="modelResults"></div>
+    </div>
+  </section>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+  const API = 'https://openrouter.ai/api/v1';
+  const $ = s => document.querySelector(s);
+  const touch = matchMedia('(pointer:coarse)').matches;
+
+  // ---------- storage ----------
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('sb_' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem('sb_' + k, JSON.stringify(v)); } catch { toast('Could not save. Browser storage is full or blocked.'); } }
+  };
+  const state = {
+    key: store.get('key', ''),
+    model: store.get('model', 'openrouter/auto'),
+    recent: store.get('recent', []),
+    system: store.get('system', ''),
+    files: store.get('files', []),
+    presets: store.get('presets', []),
+    messages: store.get('messages', []),
+    totals: store.get('totals', { tokens: 0, cost: 0 })
+  };
+  let models = null, controller = null, streamBody = null, openFileId = null;
+
+  const saveInstr = () => { store.set('system', state.system); store.set('files', state.files); updateBadge(); updatePreview(); };
+  const saveChat = () => { store.set('messages', state.messages); store.set('totals', state.totals); };
+  const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+  const saveInstrSoon = debounce(saveInstr, 300);
+  const uid = () => Math.random().toString(36).slice(2, 10);
+
+  // ---------- helpers ----------
+  function el(tag, attrs = {}, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v === false || v == null) continue;
+      if (k === 'class') e.className = v;
+      else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+      else if (k === 'html') e.innerHTML = v;
+      else if (k in e && typeof v !== 'string') e[k] = v;
+      else e.setAttribute(k, v === true ? '' : v);
+    }
+    for (const c of kids.flat()) if (c != null && c !== false) e.append(c.nodeType ? c : document.createTextNode(c));
+    return e;
+  }
+  let toastTimer;
+  function toast(msg) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 2600); }
+  async function copy(text) {
+    try { await navigator.clipboard.writeText(text); toast('Copied'); }
+    catch {
+      const ta = el('textarea', { style: 'position:fixed;opacity:0' }); ta.value = text; document.body.append(ta); ta.select();
+      try { document.execCommand('copy'); toast('Copied'); } catch { toast('Copy failed'); } ta.remove();
+    }
+  }
+  const fmtNum = n => n.toLocaleString();
+  const fmtCost = c => c < 0.01 ? '$' + c.toFixed(4) : '$' + c.toFixed(3);
+  const approxTokens = s => Math.ceil(s.length / 4);
+
+  function md(text) {
+    if (window.marked && window.DOMPurify) return DOMPurify.sanitize(marked.parse(text, { gfm: true, breaks: true }));
+    return text.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])).replace(/\n/g, '<br>');
+  }
+  function enhanceCode(root) {
+    root.querySelectorAll('pre').forEach(pre => {
+      const code = pre.querySelector('code'); if (!code) return;
+      pre.append(el('button', { class: 'codecopy', onclick: () => copy(code.innerText) }, 'Copy'));
+    });
+  }
+
+  // ---------- system prompt ----------
+  function buildSystem() {
+    const parts = [];
+    if (state.system.trim()) parts.push(state.system.trim());
+    state.files.filter(f => f.on).forEach(f => parts.push(`[Instructions file: ${f.name}]\n${f.content.trim()}`));
+    return parts.join('\n\n---\n\n');
+  }
+  function activeSources() { return (state.system.trim() ? 1 : 0) + state.files.filter(f => f.on).length; }
+  function instrSummary() {
+    const files = state.files.filter(f => f.on).length, text = !!state.system.trim();
+    if (!files && !text) return 'None';
+    const bits = []; if (text) bits.push('typed text'); if (files) bits.push(files + (files === 1 ? ' file' : ' files'));
+    return bits.join(' + ') + ` (~${fmtNum(approxTokens(buildSystem()))} tokens)`;
+  }
+  function updateBadge() { const n = activeSources(), b = $('#instrBadge'); b.textContent = n; b.hidden = !n; }
+  function updatePreview() {
+    const s = buildSystem();
+    $('#previewSummary').textContent = `Preview combined prompt · ${fmtNum(s.length)} chars · ~${fmtNum(approxTokens(s))} tokens`;
+    $('#previewText').textContent = s || '(empty — no system prompt will be sent)';
+  }
+
+  // ---------- messages ----------
+  function modelLabel(id) {
+    const m = models && models.find(x => x.id === id);
+    return m ? m.name : id;
+  }
+  function metaText(m) {
+    if (!m) return '';
+    const bits = [m.model ? m.model.split('/').pop() : ''];
+    if (m.tokens) bits.push(fmtNum(m.tokens) + ' tokens');
+    if (typeof m.cost === 'number') bits.push(fmtCost(m.cost));
+    if (m.stopped) bits.push('stopped');
+    return bits.filter(Boolean).join(' · ');
+  }
+  function emptyState() {
+    return el('div', { class: 'empty' },
+      el('h1', {}, 'Switchboard'),
+      el('p', {}, 'Chat with any OpenRouter model, using your own system instructions and .md files.'),
+      !state.key ? el('button', { class: 'btn primary', onclick: () => openSheet('settings') }, 'Add your API key') : null,
+      el('ul', { class: 'status' },
+        el('li', {}, el('span', {}, 'Model'), el('b', {}, modelLabel(state.model))),
+        el('li', {}, el('span', {}, 'Instructions'), el('b', {}, instrSummary())),
+        el('li', {}, el('span', {}, 'API key'), el('b', {}, state.key ? 'Saved' : 'Not set'))
+      ));
+  }
+  function renderMessages() {
+    const list = $('#messages'); list.innerHTML = ''; streamBody = null;
+    if (!state.messages.length) { list.append(emptyState()); return; }
+    state.messages.forEach((m, i) => {
+      if (m.role === 'user') { list.append(el('div', { class: 'msg user' }, el('div', { class: 'bubble' }, m.content))); return; }
+      const last = i === state.messages.length - 1;
+      const body = el('div', { class: 'md' });
+      if (m.content) { body.innerHTML = md(m.content); if (!(last && controller)) enhanceCode(body); }
+      else if (last && controller) body.append(el('span', { class: 'thinking' }, 'Thinking'));
+      list.append(el('div', { class: 'msg asst' }, body,
+        m.meta && m.meta.error ? el('div', { class: 'err' }, m.meta.error) : null,
+        el('div', { class: 'foot' },
+          el('span', { class: 'meta' }, metaText(m.meta)),
+          el('span', { class: 'actions' },
+            m.content ? el('button', { class: 'link', onclick: () => copy(m.content) }, 'Copy') : null,
+            last && !controller ? el('button', { class: 'link', onclick: regenerate }, 'Regenerate') : null))));
+      if (last) streamBody = body;
+    });
+  }
+  const scroller = $('#scroller');
+  const nearBottom = () => scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
+  const toBottom = () => { scroller.scrollTop = scroller.scrollHeight; };
+  let rafPending = false;
+  function scheduleUpdate(msg) {
+    if (rafPending) return; rafPending = true;
+    requestAnimationFrame(() => {
+      rafPending = false; if (!streamBody) return;
+      const stick = nearBottom(); streamBody.innerHTML = md(msg.content); if (stick) toBottom();
+    });
+  }
+
+  // ---------- sending ----------
+  function friendly(status, msg) {
+    if (status === 401) return 'Your API key was rejected (401). Check it in Settings.';
+    if (status === 402) return 'Out of credits (402). Add credits at openrouter.ai, or pick a free model.';
+    if (status === 429) return 'Rate limited (429). Wait a moment and try again, or switch models.';
+    if (status === 404) return msg + ' — the model may be unavailable. Try another.';
+    return msg;
+  }
+  async function send(text) {
+    if (!state.key) { openSheet('settings'); toast('Add your OpenRouter API key first'); return; }
+    if (text) state.messages.push({ role: 'user', content: text });
+    const asst = { role: 'assistant', content: '', meta: { model: state.model } };
+    state.messages.push(asst);
+    const body = { model: state.model, stream: true, usage: { include: true }, messages: [] };
+    const sys = buildSystem(); if (sys) body.messages.push({ role: 'system', content: sys });
+    state.messages.slice(0, -1).forEach(m => body.messages.push({ role: m.role, content: m.content }));
+    controller = new AbortController(); setBusy(true); saveChat(); renderMessages(); toBottom();
+    try {
+      const res = await fetch(API + '/chat/completions', {
+        method: 'POST', signal: controller.signal,
+        headers: { 'Authorization': 'Bearer ' + state.key, 'Content-Type': 'application/json', 'X-Title': 'Switchboard' },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) {
+        let msg = `${res.status} ${res.statusText}`;
+        try { const j = await res.json(); msg = (j.error && j.error.message) || msg; } catch {}
+        throw new Error(friendly(res.status, msg));
+      }
+      const reader = res.body.getReader(), dec = new TextDecoder(); let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let nl;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim(); if (data === '[DONE]') continue;
+          let j; try { j = JSON.parse(data); } catch { continue; }
+          if (j.error) throw new Error(j.error.message || 'The model returned an error.');
+          const delta = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
+          if (j.model) asst.meta.model = j.model;
+          if (delta) {
+            if (!asst.content && streamBody) streamBody.innerHTML = '';
+            asst.content += delta; scheduleUpdate(asst);
+          }
+          if (j.usage) {
+            asst.meta.tokens = j.usage.total_tokens;
+            if (typeof j.usage.cost === 'number') asst.meta.cost = j.usage.cost;
+          }
+        }
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') asst.meta.stopped = true;
+      else asst.meta.error = e.message === 'Failed to fetch' || e.message === 'Load failed'
+        ? 'Could not reach OpenRouter. Check your connection.' : e.message;
+    } finally {
+      controller = null; setBusy(false);
+      if (!asst.content && !asst.meta.error && !asst.meta.stopped) asst.meta.error = 'The model returned an empty response.';
+      if (asst.meta.tokens) state.totals.tokens += asst.meta.tokens;
+      if (asst.meta.cost) state.totals.cost += asst.meta.cost;
+      const stick = nearBottom(); saveChat(); renderMessages(); if (stick) toBottom();
+    }
+  }
+  function regenerate() {
+    if (controller) return;
+    if (state.messages.length && state.messages[state.messages.length - 1].role === 'assistant') state.messages.pop();
+    if (!state.messages.length) { renderMessages(); return; }
+    send(null);
+  }
+  function setBusy(b) {
+    const btn = $('#sendBtn'); btn.classList.toggle('stop', b);
+    btn.setAttribute('aria-label', b ? 'Stop' : 'Send');
+    $('#sendIcon').hidden = b; $('#stopIcon').hidden = !b;
+  }
+
+  // ---------- composer ----------
+  const input = $('#input');
+  function autoGrow() { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, innerHeight * 0.4) + 'px'; }
+  function onSend() {
+    if (controller) { controller.abort(); return; }
+    const t = input.value.trim(); if (!t) return;
+    input.value = ''; autoGrow(); send(t);
+  }
+  input.addEventListener('input', autoGrow);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !touch && !e.isComposing) { e.preventDefault(); onSend(); } });
+  $('#sendBtn').addEventListener('click', onSend);
+
+  // ---------- sheets ----------
+  let lastFocus = null;
+  function openSheet(name) {
+    document.querySelectorAll('.sheet').forEach(s => s.hidden = true);
+    lastFocus = document.activeElement;
+    if (name === 'settings') renderSettings();
+    if (name === 'instr') renderInstructions();
+    if (name === 'model') openModels();
+    $('#sheet-' + name).hidden = false;
+  }
+  function closeSheets() {
+    document.querySelectorAll('.sheet').forEach(s => s.hidden = true);
+    renderMessages(); if (lastFocus && lastFocus.focus) lastFocus.focus();
+  }
+  document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeSheets));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.querySelector('.sheet:not([hidden])')) closeSheets(); });
+  $('#btnSettings').addEventListener('click', () => openSheet('settings'));
+  $('#btnInstr').addEventListener('click', () => openSheet('instr'));
+  $('#modelChip').addEventListener('click', () => openSheet('model'));
+  $('#btnNew').addEventListener('click', () => {
+    if (controller) controller.abort();
+    if (state.messages.length && !confirm('Start a new chat? The current one will be cleared.')) return;
+    state.messages = []; state.totals = { tokens: 0, cost: 0 }; saveChat(); renderMessages(); input.focus();
+  });
+
+  // ---------- settings ----------
+  function setKeyStatus(msg, bad) { const n = $('#keyStatus'); n.textContent = msg; n.hidden = !msg; n.classList.toggle('bad', !!bad); }
+  function renderSettings() {
+    $('#keyInput').value = state.key; $('#keyInput').type = 'password'; $('#keyShow').textContent = 'Show'; setKeyStatus('');
+    const t = state.totals;
+    $('#chatTotals').textContent = state.messages.length
+      ? `${state.messages.filter(m => m.role === 'user').length} messages sent · ${fmtNum(t.tokens)} tokens · ${fmtCost(t.cost)}`
+      : 'No messages yet.';
+  }
+  $('#keyShow').addEventListener('click', () => { const i = $('#keyInput'), show = i.type === 'password'; i.type = show ? 'text' : 'password'; $('#keyShow').textContent = show ? 'Hide' : 'Show'; });
+  async function testKey(k) {
+    setKeyStatus('Checking…');
+    try {
+      const r = await fetch(API + '/key', { headers: { Authorization: 'Bearer ' + k } });
+      if (!r.ok) { setKeyStatus(r.status === 401 ? 'OpenRouter rejected this key. Copy it again from openrouter.ai/keys.' : `Check failed (${r.status}).`, true); return false; }
+      const d = (await r.json()).data || {};
+      const used = d.usage != null ? ` Used so far: $${Number(d.usage).toFixed(2)}${d.limit != null ? ` of $${Number(d.limit).toFixed(2)} limit` : ''}.` : '';
+      setKeyStatus(`Key works${d.label ? ` (${d.label})` : ''}.${used}`); return true;
+    } catch { setKeyStatus('Could not reach OpenRouter. Check your connection.', true); return false; }
+  }
+  $('#keySave').addEventListener('click', async () => {
+    const k = $('#keyInput').value.trim(); if (!k) { setKeyStatus('Paste a key first.', true); return; }
+    state.key = k; store.set('key', k); toast('Key saved'); await testKey(k);
+  });
+  $('#keyTest').addEventListener('click', () => { const k = $('#keyInput').value.trim(); if (k) testKey(k); else setKeyStatus('Paste a key first.', true); });
+  $('#keyClear').addEventListener('click', () => {
+    if (!confirm('Remove the saved API key from this browser?')) return;
+    state.key = ''; store.set('key', ''); $('#keyInput').value = ''; setKeyStatus('Key removed.');
+  });
+  $('#clearChatBtn').addEventListener('click', () => {
+    if (!state.messages.length || !confirm('Clear this chat?')) return;
+    if (controller) controller.abort();
+    state.messages = []; state.totals = { tokens: 0, cost: 0 }; saveChat(); renderSettings(); toast('Chat cleared');
+  });
+  $('#exportBtn').addEventListener('click', async () => {
+    if (!state.messages.length) { toast('Nothing to export yet'); return; }
+    const now = new Date(), stamp = now.toISOString().slice(0, 16).replace('T', '-').replace(':', '');
+    let out = `# Chat export\n\n${now.toLocaleString()} · Model: ${state.model}\n\n`;
+    const sys = buildSystem(); if (sys) out += `## System prompt\n\n${sys}\n\n`;
+    state.messages.forEach(m => { out += `## ${m.role === 'user' ? 'You' : 'Assistant' + (m.meta && m.meta.model ? ` (${m.meta.model})` : '')}\n\n${m.content || (m.meta && m.meta.error) || ''}\n\n`; });
+    const name = `chat-${stamp}.md`, blob = new Blob([out], { type: 'text/markdown' });
+    if (touch && navigator.canShare) {
+      try { const f = new File([blob], name, { type: 'text/markdown' }); if (navigator.canShare({ files: [f] })) { await navigator.share({ files: [f] }); return; } }
+      catch (e) { if (e.name === 'AbortError') return; }
+    }
+    const a = el('a', { href: URL.createObjectURL(blob), download: name }); document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  });
+
+  // ---------- instructions ----------
+  $('#systemInput').addEventListener('input', e => { state.system = e.target.value; saveInstrSoon(); });
+  function renderInstructions() {
+    $('#systemInput').value = state.system;
+    const list = $('#fileList'); list.innerHTML = '';
+    state.files.forEach((f, i) => {
+      const open = openFileId === f.id;
+      list.append(el('li', {},
+        el('label', { class: 'chk' },
+          el('input', { type: 'checkbox', checked: !!f.on, onchange: e => { f.on = e.target.checked; saveInstr(); } }),
+          el('span', { class: 'fname' }, f.name)),
+        el('span', { class: 'fsize' }, `~${fmtNum(approxTokens(f.content))} tok`),
+        el('span', { class: 'fact' },
+          el('button', { class: 'icon', 'aria-label': 'Move up', disabled: i === 0, onclick: () => moveFile(i, -1) }, '↑'),
+          el('button', { class: 'icon', 'aria-label': 'Move down', disabled: i === state.files.length - 1, onclick: () => moveFile(i, 1) }, '↓'),
+          el('button', { class: 'icon', 'aria-label': open ? 'Close editor' : 'Edit', onclick: () => { openFileId = open ? null : f.id; renderInstructions(); } }, open ? '▴' : '✎'),
+          el('button', { class: 'icon', 'aria-label': 'Remove', onclick: () => { if (confirm(`Remove ${f.name}?`)) { state.files.splice(i, 1); saveInstr(); renderInstructions(); } } }, '✕')),
+        open ? el('textarea', { class: 'field fedit', value: f.content, oninput: e => { f.content = e.target.value; saveInstrSoon(); } }) : null));
+    });
+    renderPresets(); updatePreview();
+  }
+  function moveFile(i, d) { const [f] = state.files.splice(i, 1); state.files.splice(i + d, 0, f); saveInstr(); renderInstructions(); }
+  $('#addFileBtn').addEventListener('click', () => $('#fileInput').click());
+  $('#fileInput').addEventListener('change', async e => {
+    for (const f of e.target.files) {
+      if (f.size > 1_000_000) { toast(`${f.name} is over 1 MB and was skipped`); continue; }
+      try { state.files.push({ id: uid(), name: f.name, content: await f.text(), on: true }); }
+      catch { toast(`Could not read ${f.name}`); }
+    }
+    e.target.value = ''; saveInstr(); renderInstructions();
+  });
+  $('#pasteFileBtn').addEventListener('click', () => { $('#pasteForm').hidden = false; $('#pasteName').focus(); });
+  $('#pasteCancel').addEventListener('click', () => { $('#pasteForm').hidden = true; });
+  $('#pasteAdd').addEventListener('click', () => {
+    const text = $('#pasteText').value; if (!text.trim()) { toast('Paste some text first'); return; }
+    let name = $('#pasteName').value.trim() || 'instructions.md'; if (!/\.\w+$/.test(name)) name += '.md';
+    state.files.push({ id: uid(), name, content: text, on: true });
+    $('#pasteName').value = ''; $('#pasteText').value = ''; $('#pasteForm').hidden = true; saveInstr(); renderInstructions();
+  });
+  function renderPresets() {
+    const list = $('#presetList'); list.innerHTML = '';
+    state.presets.forEach((p, i) => list.append(el('li', {},
+      el('span', { class: 'pname' }, p.name),
+      el('span', { class: 'pmeta' }, `${p.files.length} file${p.files.length === 1 ? '' : 's'}`),
+      el('button', { class: 'btn small', onclick: () => loadPreset(p) }, 'Load'),
+      el('button', { class: 'btn small danger', onclick: () => { if (confirm(`Delete preset "${p.name}"?`)) { state.presets.splice(i, 1); store.set('presets', state.presets); renderPresets(); } } }, 'Delete'))));
+  }
+  function loadPreset(p) {
+    state.system = p.system; state.files = JSON.parse(JSON.stringify(p.files)).map(f => ({ ...f, id: uid() }));
+    openFileId = null; saveInstr(); renderInstructions(); toast(`Loaded "${p.name}"`);
+  }
+  $('#savePresetBtn').addEventListener('click', () => {
+    if (!state.system.trim() && !state.files.length) { toast('Add some instructions first'); return; }
+    const name = (prompt('Preset name') || '').trim(); if (!name) return;
+    const snap = { name, system: state.system, files: JSON.parse(JSON.stringify(state.files)) };
+    const idx = state.presets.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
+    if (idx >= 0) { if (!confirm(`Replace the existing preset "${state.presets[idx].name}"?`)) return; state.presets[idx] = snap; }
+    else state.presets.push(snap);
+    store.set('presets', state.presets); renderPresets(); toast(`Saved "${name}"`);
+  });
+
+  // ---------- models ----------
+  function price(p) {
+    if (!p) return '';
+    const i = Number(p.prompt), o = Number(p.completion);
+    if (i < 0 || o < 0) return 'Price varies by routed model';
+    if (i === 0 && o === 0) return 'Free';
+    const f = n => '$' + (n * 1e6).toFixed(n * 1e6 < 1 ? 2 : 2).replace(/\.00$/, '');
+    return `${f(i)} in / ${f(o)} out per 1M tokens`;
+  }
+  async function openModels() {
+    $('#modelSearch').value = '';
+    renderModelList();
+    if (!models) {
+      $('#modelResults').innerHTML = '<p class="hint">Loading models…</p>';
+      try {
+        const r = await fetch(API + '/models'); if (!r.ok) throw new Error(r.status);
+        models = ((await r.json()).data || []).sort((a, b) => a.name.localeCompare(b.name));
+        $('#modelName').textContent = modelLabel(state.model);
+        renderModelList();
+      } catch {
+        $('#modelResults').innerHTML = '';
+        $('#modelResults').append(el('p', { class: 'note bad' }, 'Could not load the model list. You can still type a model ID below.'), manualRow());
+      }
+    }
+    if (!touch) setTimeout(() => $('#modelSearch').focus(), 50);
+  }
+  function manualRow() {
+    const inp = el('input', { class: 'field', placeholder: 'Model ID, e.g. anthropic/claude-sonnet-4', autocapitalize: 'off', spellcheck: 'false' });
+    return el('div', { class: 'row', style: 'margin-top:10px' }, inp, el('button', { class: 'btn', onclick: () => inp.value.trim() && pickModel(inp.value.trim()) }, 'Use'));
+  }
+  function modelRow(m) {
+    return el('li', {}, el('button', { class: state.model === m.id ? 'on' : '', onclick: () => pickModel(m.id) },
+      el('span', { class: 'm-name' }, m.name || m.id),
+      el('span', { class: 'm-id' }, m.id),
+      el('span', { class: 'm-price' }, [price(m.pricing), m.context_length ? `${fmtNum(m.context_length)} context` : ''].filter(Boolean).join(' · '))));
+  }
+  function renderModelList() {
+    const box = $('#modelResults'); if (!models) return; box.innerHTML = '';
+    const q = $('#modelSearch').value.trim().toLowerCase();
+    const terms = q.split(/\s+/).filter(Boolean);
+    const match = m => terms.every(t => t === 'free'
+      ? Number(m.pricing && m.pricing.prompt) === 0 && Number(m.pricing && m.pricing.completion) === 0
+      : (m.id + ' ' + (m.name || '')).toLowerCase().includes(t));
+    if (!q && state.recent.length) {
+      const rec = state.recent.map(id => models.find(m => m.id === id) || { id, name: id });
+      box.append(el('div', { class: 'group' }, el('h3', {}, 'Recent'), el('ul', { class: 'model-list' }, rec.map(modelRow))));
+    }
+    const found = models.filter(match), shown = found.slice(0, 150);
+    box.append(el('div', { class: 'group', style: 'margin-top:14px' },
+      el('h3', {}, q ? `${found.length} match${found.length === 1 ? '' : 'es'}` : `All models (${models.length})`),
+      el('ul', { class: 'model-list' }, shown.map(modelRow)),
+      found.length > shown.length ? el('p', { class: 'hint' }, `Showing ${shown.length} of ${found.length}. Search to narrow it down.`) : null,
+      !found.length ? manualRow() : null));
+  }
+  $('#modelSearch').addEventListener('input', renderModelList);
+  function pickModel(id) {
+    state.model = id; store.set('model', id);
+    state.recent = [id, ...state.recent.filter(x => x !== id)].slice(0, 6); store.set('recent', state.recent);
+    $('#modelName').textContent = modelLabel(id); closeSheets(); toast('Model: ' + modelLabel(id));
+  }
+
+  // ---------- init ----------
+  $('#modelName').textContent = state.model;
+  updateBadge(); renderMessages(); toBottom();
+  if (!state.key) setTimeout(() => openSheet('settings'), 300);
+  fetch(API + '/models').then(r => r.ok ? r.json() : null).then(j => {
+    if (!j || models) return;
+    models = (j.data || []).sort((a, b) => a.name.localeCompare(b.name));
+    $('#modelName').textContent = modelLabel(state.model);
+    if (!state.messages.length) renderMessages();
+  }).catch(() => {});
+})();
+</script>
+</body>
+</html>
